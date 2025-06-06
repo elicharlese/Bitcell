@@ -68,4 +68,3 @@ function ParticleField() {
     </points>
   )
 }
-

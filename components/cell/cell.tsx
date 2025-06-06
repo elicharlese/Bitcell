@@ -165,4 +165,3 @@ export default function Cell({ setActiveOrganelle, activeOrganelle, botData }: C
     </>
   )
 }
-

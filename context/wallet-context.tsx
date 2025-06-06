@@ -97,4 +97,3 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
 
 // Export the useWallet hook from @solana/wallet-adapter-react for convenience
 export const useWallet = useSolanaWallet
-

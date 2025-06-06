@@ -113,4 +113,3 @@ function TokenElements({ isDarkMode }: { isDarkMode: boolean }) {
     </group>
   )
 }
-

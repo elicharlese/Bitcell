@@ -49,4 +49,3 @@ export function DemoProvider({ children }: { children: ReactNode }) {
 
   return <DemoContext.Provider value={{ isDemoMode, enableDemoMode, disableDemoMode }}>{children}</DemoContext.Provider>
 }
-

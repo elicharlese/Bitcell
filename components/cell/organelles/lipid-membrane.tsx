@@ -149,4 +149,3 @@ export default function LipidMembrane({ isActive, onClick, health }: LipidMembra
     </group>
   )
 }
-

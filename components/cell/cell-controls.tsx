@@ -47,4 +47,3 @@ export default function CellControls({ setActiveOrganelle, activeOrganelle }: Ce
     </div>
   )
 }
-

@@ -150,4 +150,3 @@ export async function fetchBitcellData(
 export function deriveCellAccount(programId: PublicKey, owner: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("bitcell"), owner.toBuffer()], programId)
 }
-

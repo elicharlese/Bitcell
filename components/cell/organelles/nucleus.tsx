@@ -94,4 +94,3 @@ export default function Nucleus({ position, isActive, onClick, health }: Nucleus
     </group>
   )
 }
-

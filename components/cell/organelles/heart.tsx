@@ -176,4 +176,3 @@ export default function Heart({ position, scale = 1, isActive, onClick, activePo
     </group>
   )
 }
-

@@ -444,4 +444,3 @@ export default function CellSettingsPanel({ cellData, onUpdateSettings, isUpdati
     </Tabs>
   )
 }
-

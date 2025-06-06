@@ -330,4 +330,3 @@ function Wallet({ className }: { className?: string }) {
     </svg>
   )
 }
-

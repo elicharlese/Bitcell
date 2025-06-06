@@ -30,4 +30,3 @@ export function Logo({ className = "", size = "default" }: { className?: string;
     </Link>
   )
 }
-
