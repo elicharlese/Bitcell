@@ -10,10 +10,27 @@ use solana_program::{
     program::invoke,
     system_instruction,
 };
-use std::mem::size_of;
+use borsh::{BorshDeserialize, BorshSerialize};
+
+// Custom error types for better error handling
+#[derive(Debug)]
+pub enum BitcellError {
+    InvalidInstructionData,
+    AccountNotInitialized,
+    InsufficientFunds,
+    Unauthorized,
+    MaturityNotReached,
+    InvalidAmount,
+}
+
+impl From<BitcellError> for ProgramError {
+    fn from(e: BitcellError) -> Self {
+        ProgramError::Custom(e as u32)
+    }
+}
 
 // Define the data structure for our Bitcell account
-#[repr(C)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct BitcellAccount {
     pub owner: Pubkey,
     pub locked_funds: f32,
@@ -24,22 +41,58 @@ pub struct BitcellAccount {
     pub total_trades: u16,
     pub success_rate: u8,
     pub is_initialized: bool,
+    pub risk_tolerance: u8,
+    pub max_drawdown: u8,
+    pub trading_frequency: u16,
+}
+
+impl BitcellAccount {
+    pub const SIZE: usize = 32 + 4 + 4 + 8 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2; // 58 bytes
 }
 
 // Define the instruction types
-#[repr(C)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub enum BitcellInstruction {
+    /// Initialize a new cell
+    /// Accounts:
+    /// 0. [signer, writable] Payer account
+    /// 1. [writable] Cell account to initialize
+    /// 2. [] System program
     InitializeCell {
         initial_deposit: u32,
         maturity_period: u32,
+        risk_tolerance: u8,
+        max_drawdown: u8,
+        trading_frequency: u16,
     },
+    /// Deposit funds into an existing cell
+    /// Accounts:
+    /// 0. [signer, writable] Payer account
+    /// 1. [writable] Cell account
     DepositFunds {
         amount: u32,
     },
+    /// Withdraw available profits
+    /// Accounts:
+    /// 0. [signer, writable] Owner account
+    /// 1. [writable] Cell account
     WithdrawProfits {
         amount: u32,
     },
+    /// Check maturity status
+    /// Accounts:
+    /// 0. [signer] Owner account
+    /// 1. [] Cell account
     CheckMaturity,
+    /// Update cell settings
+    /// Accounts:
+    /// 0. [signer] Owner account
+    /// 1. [writable] Cell account
+    UpdateSettings {
+        risk_tolerance: u8,
+        max_drawdown: u8,
+        trading_frequency: u16,
+    },
 }
 
 // Declare the program's entrypoint
@@ -55,7 +108,7 @@ pub fn process_instruction(
     let instruction = if instruction_data.len() >= 1 {
         match instruction_data[0] {
             0 => {
-                if instruction_data.len() < 9 {
+                if instruction_data.len() < 13 {
                     return Err(ProgramError::InvalidInstructionData);
                 }
                 let initial_deposit = u32::from_le_bytes([
@@ -70,9 +123,18 @@ pub fn process_instruction(
                     instruction_data[7],
                     instruction_data[8],
                 ]);
+                let risk_tolerance = instruction_data[9];
+                let max_drawdown = instruction_data[10];
+                let trading_frequency = u16::from_le_bytes([
+                    instruction_data[11],
+                    instruction_data[12],
+                ]);
                 BitcellInstruction::InitializeCell {
                     initial_deposit,
                     maturity_period,
+                    risk_tolerance,
+                    max_drawdown,
+                    trading_frequency,
                 }
             }
             1 => {
@@ -111,9 +173,20 @@ pub fn process_instruction(
         BitcellInstruction::InitializeCell {
             initial_deposit,
             maturity_period,
+            risk_tolerance,
+            max_drawdown,
+            trading_frequency,
         } => {
             msg!("Instruction: InitializeCell");
-            process_initialize_cell(program_id, accounts, initial_deposit, maturity_period)
+            process_initialize_cell(
+                program_id, 
+                accounts, 
+                initial_deposit, 
+                maturity_period,
+                risk_tolerance,
+                max_drawdown,
+                trading_frequency
+            )
         }
         BitcellInstruction::DepositFunds { amount } => {
             msg!("Instruction: DepositFunds");
@@ -127,6 +200,14 @@ pub fn process_instruction(
             msg!("Instruction: CheckMaturity");
             process_check_maturity(program_id, accounts)
         }
+        BitcellInstruction::UpdateSettings { 
+            risk_tolerance, 
+            max_drawdown, 
+            trading_frequency 
+        } => {
+            msg!("Instruction: UpdateSettings");
+            process_update_settings(program_id, accounts, risk_tolerance, max_drawdown, trading_frequency)
+        }
     }
 }
 
@@ -136,6 +217,9 @@ fn process_initialize_cell(
     accounts: &[AccountInfo],
     initial_deposit: u32,
     maturity_period: u32,
+    risk_tolerance: u8,
+    max_drawdown: u8,
+    trading_frequency: u16,
 ) -> ProgramResult {
     // Get the account iterator
     let account_info_iter = &mut accounts.iter();
@@ -172,7 +256,7 @@ fn process_initialize_cell(
     )?;
     
     // Initialize the account data
-    let mut cell_data = BitcellAccount {
+    let cell_data = BitcellAccount {
         owner: *payer_account.key,
         locked_funds: initial_deposit as f32,
         available_profits: 0.0,
@@ -182,6 +266,9 @@ fn process_initialize_cell(
         total_trades: 0,
         success_rate: 0,
         is_initialized: true,
+        risk_tolerance,
+        max_drawdown,
+        trading_frequency,
     };
     
     // Serialize the account data
@@ -222,7 +309,7 @@ fn process_deposit_funds(
     
     // Get the cell data
     let mut data = cell_account.try_borrow_mut_data()?;
-    let mut cell_data = unsafe { &mut *(data.as_mut_ptr() as *mut BitcellAccount) };
+    let cell_data = unsafe { &mut *(data.as_mut_ptr() as *mut BitcellAccount) };
     
     // Ensure the cell is initialized
     if !cell_data.is_initialized {
@@ -265,7 +352,7 @@ fn process_withdraw_profits(
     
     // Get the cell data
     let mut data = cell_account.try_borrow_mut_data()?;
-    let mut cell_data = unsafe { &mut *(data.as_mut_ptr() as *mut BitcellAccount) };
+    let cell_data = unsafe { &mut *(data.as_mut_ptr() as *mut BitcellAccount) };
     
     // Ensure the cell is initialized
     if !cell_data.is_initialized {
@@ -331,6 +418,55 @@ fn process_check_maturity(
     } else {
         msg!("Maturity period has not passed yet. Funds are still locked.");
     }
+    
+    Ok(())
+}
+
+// Process the UpdateSettings instruction
+fn process_update_settings(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    risk_tolerance: u8,
+    max_drawdown: u8,
+    trading_frequency: u16,
+) -> ProgramResult {
+    // Get the account iterator
+    let account_info_iter = &mut accounts.iter();
+    
+    // Get the accounts
+    let owner_account = next_account_info(account_info_iter)?;
+    let cell_account = next_account_info(account_info_iter)?;
+    
+    // Ensure the owner is the signer
+    if !owner_account.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    
+    // Ensure the cell account is owned by the program
+    if cell_account.owner != program_id {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    
+    // Get the cell data
+    let mut data = cell_account.try_borrow_mut_data()?;
+    let cell_data = unsafe { &mut *(data.as_mut_ptr() as *mut BitcellAccount) };
+    
+    // Ensure the cell is initialized
+    if !cell_data.is_initialized {
+        return Err(ProgramError::UninitializedAccount);
+    }
+    
+    // Ensure the owner is the owner of the cell
+    if cell_data.owner != *owner_account.key {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    
+    // Update the settings
+    cell_data.risk_tolerance = risk_tolerance;
+    cell_data.max_drawdown = max_drawdown;
+    cell_data.trading_frequency = trading_frequency;
+    
+    msg!("Cell settings updated successfully");
     
     Ok(())
 }
